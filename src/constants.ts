@@ -1,3 +1,7 @@
+/* ================================================================
+   src\constants.ts
+================================================================ */
+
 // ── Timing ──
 export const CHORD_DETECTION_WINDOW_MS = 30;   // Fenêtre de regroupement des notes simultanées
 export const VALIDATION_TOLERANCE_MS   = 150;  // Fenêtre de tolérance pour la validation

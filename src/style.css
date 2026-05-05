@@ -1,3 +1,7 @@
+/* ================================================================
+   src\style.css
+================================================================ */
+
 /* ── Reset & Base ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -145,3 +149,14 @@ html, body {
   background: #444;  /* fond sombre opaque, plus de blanc possible */
   color: #fff;
 }
+
+.dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.dot.connected    { background-color: #2ecc71; }
+.dot.disconnected { background-color: #e74c3c; }
