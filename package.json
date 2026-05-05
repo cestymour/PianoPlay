@@ -16,6 +16,7 @@
   "dependencies": {
     "opensheetmusicdisplay": "^1.9.9",
     "pixi.js": "^8.18.1",
+    "vexflow": "^4.2.5",
     "webmidi": "^3.1.16"
   }
 }
