@@ -80,10 +80,9 @@ export function noteIdToX(
     const whiteIndex = countWhiteKeysBefore(noteId, minMidi);
     return whiteIndex * whiteKeyWidth + whiteKeyWidth / 2;
   } else {
-    // Touche noire : centrée entre les deux blanches adjacentes
-    // On prend la blanche à gauche (noteId - 1) et on décale vers la droite
+    // Touche noire : centrée sur la jonction entre la blanche gauche et la blanche droite
     const leftWhiteIndex = countWhiteKeysBefore(noteId, minMidi);
-    return leftWhiteIndex * whiteKeyWidth + whiteKeyWidth * 0.75;
+    return leftWhiteIndex * whiteKeyWidth + whiteKeyWidth;
   }
 }
 
