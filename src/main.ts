@@ -8,7 +8,7 @@ import { handleNoteOn, handleNoteOff, onChordChange } from './core/chordDetector
 import { initRenderer } from './gfx/renderer';
 import { initKeyboardViz, keyOn, keyOff, allKeysOff } from './gfx/keyboardViz';
 import { initStaffFreeMode, renderChord, clearStaff, disposeStaffFreeMode } from './notation/staffFreeMode';
-import { initPianoRoll, spawnNoteBlock, updatePianoRoll, clearPianoRoll } from './gfx/pianoRoll';
+import { initPianoRoll, noteOnPianoRoll, noteOffPianoRoll, updatePianoRoll, clearPianoRoll } from './gfx/pianoRoll';
 import { registerUpdateCallback, startGameLoop, disposeGameLoop } from './core/gameLoop';
 import type { MidiNote } from './core/midiEngine';
 
@@ -50,13 +50,16 @@ initMidi(
     handleNoteOn(note);
     if (_pixiReady) {
       keyOn(note.noteId);
-      spawnNoteBlock(note.noteId); // ← Nouveau : spawn visuel dans le piano roll
+      noteOnPianoRoll(note.noteId);
     }
     updateMidiStatusUI(isMidiConnected(), getActiveInputName());
   },
   (note: MidiNote) => {
     handleNoteOff(note);
-    if (_pixiReady) keyOff(note.noteId);
+    if (_pixiReady) {
+      keyOff(note.noteId);
+      noteOffPianoRoll(note.noteId);
+    }
   }
 );
 
