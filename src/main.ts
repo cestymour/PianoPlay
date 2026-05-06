@@ -7,7 +7,18 @@ import { initMidi, isMidiConnected, getActiveInputName } from './core/midiEngine
 import { handleNoteOn, handleNoteOff, onChordChange } from './core/chordDetector';
 import { initRenderer } from './gfx/renderer';
 import { initKeyboardViz, keyOn, keyOff, allKeysOff } from './gfx/keyboardViz';
-import { initStaffFreeMode, renderChord, clearStaff, disposeStaffFreeMode } from './notation/staffFreeMode';
+import {
+  initStaffFreeMode,
+  renderChord,
+  clearStaff,
+  disposeStaffFreeMode,
+} from './notation/staffFreeMode';
+import {
+  initStaffReadMode,
+  updateStaffReadMode,
+  disposeStaffReadMode,
+  resetStaffReadMode,
+} from './notation/staffReadMode';
 import {
   initPianoRoll,
   noteOnPianoRoll,
@@ -17,15 +28,27 @@ import {
   setPianoRollMode,
 } from './gfx/pianoRoll';
 import { initKeyboardDebug } from './core/keyboardDebug';
-import { registerUpdateCallback, startGameLoop, pauseGameLoop, disposeGameLoop } from './core/gameLoop';
-import { parseMidiFile, getNotesForTrack, getPlayableTracks } from './core/fileParser';
-import type { MidiTrack } from './core/fileParser';
+import {
+  registerUpdateCallback,
+  startGameLoop,
+  pauseGameLoop,
+  disposeGameLoop,
+} from './core/gameLoop';
+import {
+  parseMidiFile,
+  parseMxlFile,
+  detectFileType,
+  getNotesForTrack,
+  getPlayableTracks,
+} from './core/fileParser';
+import type { MidiTrack, MusicFileType, ParsedMxlFile } from './core/fileParser';
 import {
   initScheduler,
   startScheduler,
   pauseScheduler,
   stopScheduler,
   updateScheduler,
+  getCurrentTimeMs,
 } from './core/readModeScheduler';
 import type { MidiNote } from './core/midiEngine';
 
@@ -35,12 +58,17 @@ import type { MidiNote } from './core/midiEngine';
 
 /** Liste des morceaux de démo disponibles sans import de fichier */
 const DEMO_FILES: { label: string; path: string }[] = [
-  { label: 'Démo 1', path: '/songs/minuet.mid' },
-  { label: 'Démo 2', path: '/songs/elise.mid' },
-  { label: 'Démo 3', path: '/songs/bride.mid' },
+  { label: 'Démo 1 (MIDI)',  path: '/songs/minuet.mid'  },
+  { label: 'Démo 2 (MIDI)',  path: '/songs/elise.mid'   },
+  { label: 'Démo 3 (MIDI)',  path: '/songs/bride.mid'   },
+  { label: 'Démo 4 (MXL)',   path: '/songs/bride.mxl'   },
+  { label: 'Démo 5 (MXL)',   path: '/songs/saez.mxl'    },
 ];
 
-// ── Éléments DOM ──────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// Éléments DOM
+// ─────────────────────────────────────────────
+
 const overlayMenu     = document.getElementById('overlay-menu')     as HTMLDivElement;
 const gameView        = document.getElementById('game-view')        as HTMLDivElement;
 const btnFreeMode     = document.getElementById('btn-free-mode')    as HTMLButtonElement;
@@ -53,21 +81,27 @@ const zoneStaff       = document.getElementById('zone-staff')       as HTMLDivEl
 const canvasKeyboard  = document.getElementById('canvas-keyboard')  as HTMLCanvasElement;
 const canvasPianoRoll = document.getElementById('canvas-pianoroll') as HTMLCanvasElement;
 
-// ── Éléments DOM injectés dynamiquement ───────────────────────────────────────
+// ─────────────────────────────────────────────
+// État de l'app
+// ─────────────────────────────────────────────
 
-/** Conteneur du panneau de sélection de fichier/piste (injecté dans overlay-menu) */
-let _filePickerPanel: HTMLDivElement | null = null;
-
-/** Select de sélection de piste (injecté dynamiquement après parsing) */
-let _trackSelect: HTMLSelectElement | null = null;
-
-// ── État de l'app ─────────────────────────────────────────────────────────────
-let _pixiReady       = false;
-let _isPaused        = false;
-let _pianoRollHeight = 0;
-
-/** Index de la piste sélectionnée pour la lecture */
+let _pixiReady          = false;
+let _isPaused           = false;
+let _pianoRollHeight    = 0;
 let _selectedTrackIndex = 0;
+
+/**
+ * Type du fichier chargé en cours.
+ * Détermine le mode de lecture (piano roll seul vs piano roll + portée OSMD).
+ */
+let _loadedFileType: MusicFileType = 'unknown';
+
+/** Buffer du fichier .mxl chargé, conservé pour initStaffReadMode() */
+let _mxlBuffer: ParsedMxlFile | null = null;
+
+/** Panels injectés dynamiquement */
+let _filePickerPanel: HTMLDivElement | null  = null;
+let _trackSelect:     HTMLSelectElement | null = null;
 
 // ─────────────────────────────────────────────
 // Indicateur MIDI
@@ -106,7 +140,7 @@ initMidi(
       keyOff(note.noteId);
       noteOffPianoRoll(note.noteId);
     }
-  }
+  },
 );
 
 // ── Simulation clavier AZERTY (debug) ─────────────────────────────────────────
@@ -124,52 +158,59 @@ initKeyboardDebug(
       keyOff(note.noteId);
       noteOffPianoRoll(note.noteId);
     }
-  }
+  },
 );
 
-// ChordDetector → portée VexFlow (Mode Libre uniquement)
 onChordChange((activeNotes) => {
   renderChord(activeNotes);
 });
 
 // ─────────────────────────────────────────────
-// Initialisation PixiJS (lazy, au premier passage en vue jeu)
+// Initialisation PixiJS (lazy)
 // ─────────────────────────────────────────────
 
 async function initGameView(): Promise<void> {
   if (_pixiReady) {
     startGameLoop();
-    console.log('[main] Vue jeu réactivée');
     return;
   }
 
-  // ── Canvas Clavier ──────────────────────────────────────────────────────────
   const keyboardZone   = document.getElementById('zone-keyboard') as HTMLDivElement;
-  const keyboardWidth  = keyboardZone.clientWidth;
-  const keyboardHeight = keyboardZone.clientHeight;
-
-  const appKeyboard = await initRenderer(canvasKeyboard, keyboardWidth, keyboardHeight);
+  const appKeyboard    = await initRenderer(canvasKeyboard, keyboardZone.clientWidth, keyboardZone.clientHeight);
   initKeyboardViz(appKeyboard);
 
-  // ── Canvas Piano Roll ───────────────────────────────────────────────────────
-  const pianoRollZone = document.getElementById('zone-pianoroll') as HTMLDivElement;
-  const pianoRollWidth  = pianoRollZone.clientWidth;
-  _pianoRollHeight      = pianoRollZone.clientHeight;
+  const pianoRollZone  = document.getElementById('zone-pianoroll') as HTMLDivElement;
+  const pianoRollWidth = pianoRollZone.clientWidth;
+  _pianoRollHeight     = pianoRollZone.clientHeight;
 
   const appPianoRoll = await initRenderer(canvasPianoRoll, pianoRollWidth, _pianoRollHeight);
   initPianoRoll(appPianoRoll);
 
-  // ── Game Loop ───────────────────────────────────────────────────────────────
   registerUpdateCallback(updatePianoRoll);
   registerUpdateCallback(updateScheduler);
+
+  // Callback de synchronisation curseur OSMD — branché une seule fois.
+  // Il s'exécute à chaque frame mais est no-op si OSMD n'est pas actif.
+  registerUpdateCallback(_syncOsmdCursor);
+
   startGameLoop();
 
   _pixiReady = true;
   console.log('[main] Vue jeu initialisée');
 }
 
+/**
+ * Synchronise le curseur OSMD avec le temps courant du scheduler.
+ * Enregistré comme callback de la game loop dans initGameView().
+ * No-op si on n'est pas en Mode Lecture MXL.
+ */
+function _syncOsmdCursor(_deltaMs: number): void {
+  if (_loadedFileType !== 'mxl') return;
+  updateStaffReadMode(getCurrentTimeMs());
+}
+
 // ─────────────────────────────────────────────
-// Sélection de fichier / piste (overlay menu)
+// Sélection de fichier / piste
 // ─────────────────────────────────────────────
 
 /**
@@ -177,13 +218,12 @@ async function initGameView(): Promise<void> {
  * dans l'overlay menu. Appelé au clic sur "SÉLECTIONNER UN MORCEAU".
  */
 function buildFilePickerPanel(): void {
-  // Supprime le panneau précédent s'il existe
   _filePickerPanel?.remove();
 
   const panel = document.createElement('div');
   panel.id = 'file-picker-panel';
 
-  // ── Section démos ──────────────────────────────────────────────────────────
+  // ── Démos ──────────────────────────────────────────────────────
   const demoTitle = document.createElement('p');
   demoTitle.textContent = 'Morceaux de démo :';
   panel.appendChild(demoTitle);
@@ -192,48 +232,47 @@ function buildFilePickerPanel(): void {
   demoList.id = 'demo-list';
 
   DEMO_FILES.forEach(({ label, path }) => {
-    const btn = document.createElement('button');
+    const btn       = document.createElement('button');
     btn.textContent = label;
     btn.className   = 'btn-demo';
-    btn.addEventListener('click', () => loadMidiFromUrl(path));
+    btn.addEventListener('click', () => loadFileFromUrl(path));
     demoList.appendChild(btn);
   });
 
   panel.appendChild(demoList);
 
-  // ── Section import fichier ────────────────────────────────────────────────
-  const importTitle = document.createElement('p');
-  importTitle.textContent = 'Ou importer un fichier .mid :';
+  // ── Import fichier ─────────────────────────────────────────────
+  const importTitle       = document.createElement('p');
+  importTitle.textContent = 'Ou importer un fichier :';
   panel.appendChild(importTitle);
 
-  const fileInput = document.createElement('input');
+  const fileInput  = document.createElement('input');
   fileInput.type   = 'file';
-  fileInput.accept = '.mid,.midi';
-  fileInput.id     = 'input-midi-file';
-  fileInput.addEventListener('change', onMidiFileInputChange);
+  // Une seule boîte de dialogue pour .mid et .mxl/.xml
+  fileInput.accept = '.mid,.midi,.mxl,.xml,.musicxml';
+  fileInput.id     = 'input-music-file';
+  fileInput.addEventListener('change', onFileInputChange);
   panel.appendChild(fileInput);
 
-  // ── Section sélection de piste (initialement masquée) ────────────────────
-  const trackSection = document.createElement('div');
-  trackSection.id = 'track-section';
+  // ── Sélection de piste (MIDI uniquement, masquée par défaut) ──
+  const trackSection       = document.createElement('div');
+  trackSection.id          = 'track-section';
   trackSection.style.display = 'none';
 
-  const trackLabel = document.createElement('label');
-  trackLabel.htmlFor     = 'track-select';
-  trackLabel.textContent = 'Piste à jouer :';
+  const trackLabel         = document.createElement('label');
+  trackLabel.htmlFor       = 'track-select';
+  trackLabel.textContent   = 'Piste à jouer :';
 
-  const trackSelect = document.createElement('select');
-  trackSelect.id = 'track-select';
+  const trackSelect        = document.createElement('select');
+  trackSelect.id           = 'track-select';
   trackSelect.addEventListener('change', () => {
     _selectedTrackIndex = parseInt(trackSelect.value, 10);
-    console.log(`[main] Piste sélectionnée : ${_selectedTrackIndex}`);
   });
-
   _trackSelect = trackSelect;
 
-  const btnPlay = document.createElement('button');
-  btnPlay.id          = 'btn-start-read';
-  btnPlay.textContent = '▶ Jouer';
+  const btnPlay            = document.createElement('button');
+  btnPlay.id               = 'btn-start-read';
+  btnPlay.textContent      = '▶ Jouer';
   btnPlay.addEventListener('click', () => startReadMode());
 
   trackSection.appendChild(trackLabel);
@@ -245,78 +284,118 @@ function buildFilePickerPanel(): void {
   _filePickerPanel = panel;
 }
 
+// ─────────────────────────────────────────────
+// Chargement de fichier
+// ─────────────────────────────────────────────
+
 /**
- * Charge un fichier .mid depuis une URL (fichiers de démo).
+ * Charge un fichier depuis une URL (démos).
+ * Détecte automatiquement le type via l'extension.
  */
-async function loadMidiFromUrl(url: string): Promise<void> {
+async function loadFileFromUrl(url: string): Promise<void> {
   try {
-    console.log(`[main] Chargement démo : ${url}`);
+    console.log(`[main] Chargement : ${url}`);
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const buffer = await response.arrayBuffer();
-    onMidiBufferReady(buffer, url.split('/').pop() ?? url);
+    const buffer   = await response.arrayBuffer();
+    const filename = url.split('/').pop() ?? url;
+    onBufferReady(buffer, filename);
   } catch (err) {
-    console.error('[main] Erreur chargement démo :', err);
-    alert(`Impossible de charger le fichier : ${url}`);
+    console.error('[main] Erreur chargement :', err);
+    alert(`Impossible de charger le fichier.`);
   }
 }
 
 /**
- * Handler de l'input file — lit le fichier sélectionné par l'utilisateur.
+ * Handler de l'<input type="file"> unifié (.mid + .mxl).
  */
-function onMidiFileInputChange(evt: Event): void {
+function onFileInputChange(evt: Event): void {
   const input = evt.target as HTMLInputElement;
   const file  = input.files?.[0];
   if (!file) return;
 
-  const reader = new FileReader();
-  reader.onload = (e) => {
+  const reader    = new FileReader();
+  reader.onload   = (e) => {
     const buffer = e.target?.result as ArrayBuffer;
-    if (buffer) onMidiBufferReady(buffer, file.name);
+    if (buffer) onBufferReady(buffer, file.name);
   };
   reader.readAsArrayBuffer(file);
 }
 
 /**
- * Appelé quand un buffer .mid est prêt (démo ou import).
- * Parse le fichier et affiche le sélecteur de piste.
+ * Point d'entrée unique après obtention du buffer.
+ * Aiguille vers le parsing .mid ou .mxl selon le type détecté.
  */
-function onMidiBufferReady(buffer: ArrayBuffer, filename: string): void {
-  console.log(`[main] Parsing : ${filename}`);
+function onBufferReady(buffer: ArrayBuffer, filename: string): void {
+  const fileType = detectFileType(filename);
 
-  const result = parseMidiFile(buffer);
-  const playableTracks = getPlayableTracks();
-
-  if (playableTracks.length === 0) {
-    alert('Ce fichier MIDI ne contient aucune note jouable.');
+  if (fileType === 'unknown') {
+    alert('Format non reconnu. Utilisez un fichier .mid ou .mxl.');
     return;
   }
 
-  // Sélection par défaut : première piste jouable
-  _selectedTrackIndex = playableTracks[0].index;
+  _loadedFileType = fileType;
+  _mxlBuffer      = null;
 
-  // Alimentation du select de piste
-  _populateTrackSelect(playableTracks);
+  console.log(`[main] Fichier : ${filename} (type=${fileType})`);
 
-  // Affichage de la section piste
-  const trackSection = document.getElementById('track-section');
-  if (trackSection) trackSection.style.display = '';
+  if (fileType === 'mid') {
+    // ── Parsing MIDI ───────────────────────────────────────────
+    const result         = parseMidiFile(buffer);
+    const playableTracks = getPlayableTracks();
 
-  console.log(`[main] ${playableTracks.length} piste(s) jouable(s) détectée(s)`);
+    if (playableTracks.length === 0) {
+      alert('Ce fichier MIDI ne contient aucune note jouable.');
+      return;
+    }
+
+    _selectedTrackIndex = playableTracks[0].index;
+    _populateTrackSelect(playableTracks);
+
+    // Afficher le sélecteur de piste
+    const trackSection = document.getElementById('track-section');
+    if (trackSection) trackSection.style.display = '';
+
+  } else {
+    // ── Fichier MXL ────────────────────────────────────────────
+    // Pas de sélection de piste pour .mxl — OSMD gère en interne
+    _mxlBuffer = parseMxlFile(buffer, filename);
+
+    // Masquer la section piste si elle était visible (changement de fichier)
+    const trackSection = document.getElementById('track-section');
+    if (trackSection) trackSection.style.display = 'none';
+
+    // Bouton de lancement direct (sans sélection de piste)
+    _showMxlPlayButton();
+  }
 }
 
 /**
- * Remplit le <select> avec les pistes jouables.
+ * Affiche un bouton "▶ Jouer" direct pour les fichiers .mxl
+ * (pas de sélection de piste nécessaire).
  */
+function _showMxlPlayButton(): void {
+  // Réutilise ou crée un bouton dédié MXL
+  let btnMxlPlay = document.getElementById('btn-mxl-play') as HTMLButtonElement | null;
+
+  if (!btnMxlPlay) {
+    btnMxlPlay            = document.createElement('button');
+    btnMxlPlay.id         = 'btn-mxl-play';
+    btnMxlPlay.textContent = '▶ Jouer la partition';
+    btnMxlPlay.addEventListener('click', () => startReadMode());
+    _filePickerPanel?.appendChild(btnMxlPlay);
+  }
+
+  btnMxlPlay.style.display = '';
+}
+
 function _populateTrackSelect(tracks: MidiTrack[]): void {
   if (!_trackSelect) return;
-
   _trackSelect.innerHTML = '';
-
   tracks.forEach((track) => {
-    const opt = document.createElement('option');
-    opt.value       = String(track.index);
-    opt.textContent = `${track.name} (${track.notes} notes)`;
+    const opt         = document.createElement('option');
+    opt.value         = String(track.index);
+    opt.textContent   = `${track.name} (${track.notes} notes)`;
     _trackSelect!.appendChild(opt);
   });
 }
@@ -328,15 +407,19 @@ function _populateTrackSelect(tracks: MidiTrack[]): void {
 function showMenu(): void {
   overlayMenu.classList.remove('hidden');
   gameView.classList.add('hidden');
+
   allKeysOff();
   clearStaff();
   clearPianoRoll();
   stopScheduler();
   disposeStaffFreeMode();
+  disposeStaffReadMode();  // ← nettoyage OSMD au retour menu
   pauseGameLoop();
-  _isPaused = false;
-}
 
+  _loadedFileType = 'unknown';
+  _mxlBuffer      = null;
+  _isPaused       = false;
+}
 
 async function showGame(mode: 'free' | 'read'): Promise<void> {
   overlayMenu.classList.add('hidden');
@@ -354,46 +437,78 @@ async function showGame(mode: 'free' | 'read'): Promise<void> {
 
   if (mode === 'read') {
     setPianoRollMode('read');
-    // La portée est masquée en Mode Lecture MIDI (pas de .mxl)
-    zoneStaff.style.display = 'none';
+
+    if (_loadedFileType === 'mxl') {
+      // Mode Lecture MXL : portée OSMD visible
+      zoneStaff.style.display = '';
+    } else {
+      // Mode Lecture MIDI : portée masquée
+      zoneStaff.style.display = 'none';
+    }
   }
 }
 
 /**
- * Lance le Mode Lecture avec la piste sélectionnée.
+ * Lance le Mode Lecture avec la piste/fichier sélectionné(e).
+ * Gère les deux cas : .mid (notes du fileParser) et .mxl (OSMD).
  */
 async function startReadMode(): Promise<void> {
-  const notes = getNotesForTrack(_selectedTrackIndex);
-
-  if (notes.length === 0) {
-    alert('Cette piste ne contient aucune note.');
-    return;
-  }
-
   await showGame('read');
 
-  // Init du scheduler avec la hauteur réelle du piano roll
-  initScheduler(notes, _pianoRollHeight, () => {
-    console.log('[main] Morceau terminé');
-    // TODO étape 8 : afficher l'écran de score
-  });
+  if (_loadedFileType === 'mid') {
+    // ── Mode Lecture MIDI ───────────────────────────────────────
+    const notes = getNotesForTrack(_selectedTrackIndex);
 
-  startScheduler();
-  console.log(`[main] Mode Lecture démarré — piste ${_selectedTrackIndex}, ${notes.length} notes`);
+    if (notes.length === 0) {
+      alert('Cette piste ne contient aucune note.');
+      return;
+    }
+
+    initScheduler(notes, _pianoRollHeight, () => {
+      console.log('[main] Morceau MIDI terminé');
+      // TODO étape 8 : écran de score
+    });
+
+    startScheduler();
+    console.log(`[main] Mode Lecture MIDI — piste ${_selectedTrackIndex}, ${notes.length} notes`);
+
+  } else if (_loadedFileType === 'mxl' && _mxlBuffer) {
+    // ── Mode Lecture MXL ────────────────────────────────────────
+    // 1. Charger et rendre OSMD dans la zone portée
+    const durationMs = await initStaffReadMode(
+      zoneStaff,
+      _mxlBuffer.buffer,
+      _mxlBuffer.mimeType,
+    );    
+
+    // 2. OSMD gère ses propres notes — le scheduler tourne à vide
+    //    pour faire avancer le temps (getCurrentTimeMs() utilisé par
+    //    _syncOsmdCursor pour piloter le curseur OSMD).
+    //    On crée une liste vide : pas de NoteBlocks dans le piano roll.
+    //    TODO étape 7 : alimenter le scheduler avec getCollectedNotes()
+    //    pour le feedback de validation.
+    initScheduler([], _pianoRollHeight, () => {
+      console.log('[main] Morceau MXL terminé');
+      // TODO étape 8 : écran de score
+    });
+
+    // Override de la durée du scheduler : on le laisse tourner
+    // le temps nécessaire pour que le curseur OSMD finisse.
+    // Pour l'instant le scheduler se terminera immédiatement (0 notes).
+    // À l'étape 7, on injectera les notes OSMD dans le scheduler.
+    startScheduler();
+
+    console.log(`[main] Mode Lecture MXL — durée estimée=${durationMs.toFixed(0)}ms`);
+  }
 }
 
 // ─────────────────────────────────────────────
-// Listeners boutons
+// Listeners
 // ─────────────────────────────────────────────
 
-btnFreeMode.addEventListener('click', () => {
-  console.log('[main] Mode Libre sélectionné');
-  showGame('free');
-});
+btnFreeMode.addEventListener('click', () => showGame('free'));
 
-btnLoadFile.addEventListener('click', () => {
-  buildFilePickerPanel();
-});
+btnLoadFile.addEventListener('click', () => buildFilePickerPanel());
 
 btnPause.addEventListener('click', () => {
   _isPaused = !_isPaused;
@@ -407,7 +522,6 @@ btnPause.addEventListener('click', () => {
 });
 
 btnQuit.addEventListener('click', () => {
-  console.log('[main] Retour au menu');
   disposeStaffFreeMode();
   showMenu();
 });

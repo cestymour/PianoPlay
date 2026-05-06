@@ -1,6 +1,7 @@
 /* ================================================================
    src/core/fileParser.ts
    Parsing des fichiers .mid — MidiPlayerJS
+   Parsing des fichiers .mxl — détection + transmission à OSMD
    Gestion multi-pistes + sélection de piste
 ================================================================ */
 
@@ -31,6 +32,18 @@ export interface ParsedMidiFile {
   bpm:         number;        // Tempo détecté (ou DEFAULT_BPM si absent)
 }
 
+/**
+ * Type de fichier musical détecté.
+ * Utilisé par main.ts pour aiguiller vers le bon mode.
+ */
+export type MusicFileType = 'mid' | 'mxl' | 'unknown';
+
+/** Résultat du "parsing" d'un fichier MXL — buffer + type MIME pour OSMD */
+export interface ParsedMxlFile {
+    buffer:   ArrayBuffer;
+    mimeType: 'application/vnd.recordare.musicxml' | 'text/xml';
+  }
+  
 // ─────────────────────────────────────────────
 // État interne
 // ─────────────────────────────────────────────
@@ -39,23 +52,57 @@ export interface ParsedMidiFile {
 type RawNoteMap = Map<number, { startMs: number; durationMs: number }[]>;
 
 let _player:       MidiPlayer.Player | null = null;
-let _parsedTracks: Map<number, ParsedNote[]> = new Map(); // index piste → notes parsées
+let _parsedTracks: Map<number, ParsedNote[]> = new Map();
 let _tracksMeta:   MidiTrack[] = [];
 let _durationMs    = 0;
 let _bpm           = 120;
 
 // ─────────────────────────────────────────────
-// API publique — Parsing
+// Détection du type de fichier
 // ─────────────────────────────────────────────
 
 /**
- * Parse un fichier .mid à partir d'un ArrayBuffer.
- * Retourne les métadonnées (pistes, durée, bpm).
- * Les notes de chaque piste sont stockées en interne.
+ * Détecte le type d'un fichier musical à partir de son nom.
+ * Utilisé par main.ts pour aiguiller le parsing.
  *
- * @param buffer - Contenu binaire du fichier .mid
- * @returns Métadonnées du fichier parsé
+ * @param filename - Nom du fichier (ex: "morceau.mid", "partition.mxl")
+ * @returns 'mid', 'mxl', ou 'unknown'
  */
+export function detectFileType(filename: string): MusicFileType {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.mid') || lower.endsWith('.midi')) return 'mid';
+  if (lower.endsWith('.mxl') || lower.endsWith('.xml') || lower.endsWith('.musicxml')) return 'mxl';
+  return 'unknown';
+}
+
+// ─────────────────────────────────────────────
+// API publique — Parsing .mxl
+// ─────────────────────────────────────────────
+
+/**
+ * Valide et retourne un buffer .mxl prêt à être passé à OSMD.
+ * Le parsing réel est délégué à OSMD (initStaffReadMode).
+ * Cette fonction sert de point d'entrée unique dans fileParser
+ * pour la cohérence architecturale.
+ *
+ * @param buffer - Contenu binaire du fichier .mxl
+ * @returns Le même buffer (OSMD le consomme directement)
+ */
+export function parseMxlFile(buffer: ArrayBuffer, filename: string): ParsedMxlFile {
+  const lower    = filename.toLowerCase();
+  const mimeType = lower.endsWith('.mxl')
+    ? 'application/vnd.recordare.musicxml'
+    : 'text/xml';
+
+  console.log(`[FileParser] Fichier MXL/XML reçu (${buffer.byteLength} octets, mime=${mimeType})`);
+
+  return { buffer, mimeType };
+}
+
+// ─────────────────────────────────────────────
+// API publique — Parsing .mid (inchangé)
+// ─────────────────────────────────────────────
+
 export function parseMidiFile(buffer: ArrayBuffer): ParsedMidiFile {
   _reset();
 
@@ -191,7 +238,6 @@ export function getPlayableTracks(): MidiTrack[] {
  * @param ppqn  - Pulses Per Quarter Note (résolution du fichier MIDI)
  */
 function _ticksToMs(ticks: number, bpm: number, ppqn: number): number {
-  // ms = (ticks / ppqn) × (60 000 / bpm)
   return (ticks / ppqn) * (60_000 / bpm);
 }
 
