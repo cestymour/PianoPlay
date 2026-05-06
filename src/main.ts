@@ -9,6 +9,7 @@ import { initRenderer } from './gfx/renderer';
 import { initKeyboardViz, keyOn, keyOff, allKeysOff } from './gfx/keyboardViz';
 import { initStaffFreeMode, renderChord, clearStaff, disposeStaffFreeMode } from './notation/staffFreeMode';
 import { initPianoRoll, noteOnPianoRoll, noteOffPianoRoll, updatePianoRoll, clearPianoRoll } from './gfx/pianoRoll';
+import { initKeyboardDebug } from './core/keyboardDebug';
 import { registerUpdateCallback, startGameLoop, disposeGameLoop } from './core/gameLoop';
 import type { MidiNote } from './core/midiEngine';
 
@@ -53,6 +54,24 @@ initMidi(
       noteOnPianoRoll(note.noteId);
     }
     updateMidiStatusUI(isMidiConnected(), getActiveInputName());
+  },
+  (note: MidiNote) => {
+    handleNoteOff(note);
+    if (_pixiReady) {
+      keyOff(note.noteId);
+      noteOffPianoRoll(note.noteId);
+    }
+  }
+);
+
+// ── Simulation clavier AZERTY (debug) ─────────────────────────────────────────
+initKeyboardDebug(
+  (note: MidiNote) => {
+    handleNoteOn(note);
+    if (_pixiReady) {
+      keyOn(note.noteId);
+      noteOnPianoRoll(note.noteId);
+    }
   },
   (note: MidiNote) => {
     handleNoteOff(note);
