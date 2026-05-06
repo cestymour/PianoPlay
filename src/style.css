@@ -160,3 +160,52 @@ html, body {
 }
 .dot.connected    { background-color: #2ecc71; }
 .dot.disconnected { background-color: #e74c3c; }
+
+/* ── Panneau sélection fichier/piste ──────────────────────────── */
+
+#file-picker-panel {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+#file-picker-panel p {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+#demo-list {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn-demo {
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+#track-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+#track-select {
+  padding: 0.4rem 0.8rem;
+  font-size: 1rem;
+  min-width: 200px;
+}
+
+#btn-start-read {
+  padding: 0.6rem 2rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+}

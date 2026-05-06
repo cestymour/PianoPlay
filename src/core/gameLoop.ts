@@ -31,6 +31,8 @@ let _running     = false;
  * @param cb - Fonction appelée avec deltaMs à chaque frame
  */
 export function registerUpdateCallback(cb: UpdateCallback): void {
+  // Évite les doublons si initGameView() est appelé plusieurs fois
+  if (_callbacks.includes(cb)) return;
   _callbacks.push(cb);
 }
 
@@ -42,21 +44,22 @@ export function unregisterUpdateCallback(cb: UpdateCallback): void {
 }
 
 /**
- * Démarre la game loop.
+ * Démarre (ou redémarre) la game loop.
  * Sans effet si elle est déjà en cours.
  */
 export function startGameLoop(): void {
   if (_running) return;
-  _running   = true;
-  _lastTime  = null;
-  _rafId     = requestAnimationFrame(_tick);
+  _running  = true;
+  _lastTime = null;
+  _rafId    = requestAnimationFrame(_tick);
   console.log('[GameLoop] Démarrée');
 }
 
 /**
- * Arrête la game loop proprement.
+ * Stoppe la game loop sans vider les callbacks ni détruire l'état.
+ * Utilisé pour le retour au menu — permet un redémarrage propre.
  */
-export function stopGameLoop(): void {
+export function pauseGameLoop(): void {
   if (!_running) return;
   _running = false;
   if (_rafId !== null) {
@@ -64,7 +67,16 @@ export function stopGameLoop(): void {
     _rafId = null;
   }
   _lastTime = null;
-  console.log('[GameLoop] Arrêtée');
+  console.log('[GameLoop] Mise en pause');
+}
+
+/**
+ * Arrête la game loop proprement.
+ * @deprecated Préférer pauseGameLoop() pour le retour menu.
+ * Garder pour compatibilité avec les appels existants.
+ */
+export function stopGameLoop(): void {
+  pauseGameLoop();
 }
 
 /**
@@ -76,10 +88,10 @@ export function isGameLoopRunning(): boolean {
 
 /**
  * Retire tous les callbacks et arrête la loop.
- * Utile pour un reset complet (ex: retour au menu).
+ * Réservé à un démontage total de l'application.
  */
 export function disposeGameLoop(): void {
-  stopGameLoop();
+  pauseGameLoop();
   _callbacks = [];
   console.log('[GameLoop] Disposée');
 }

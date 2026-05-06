@@ -14,6 +14,7 @@
     "vite": "^8.0.10"
   },
   "dependencies": {
+    "midi-player-js": "^2.0.17",
     "opensheetmusicdisplay": "^1.9.9",
     "pixi.js": "^8.18.1",
     "vexflow": "^4.2.5",

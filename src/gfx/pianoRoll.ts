@@ -1,7 +1,8 @@
 /* ================================================================
    src/gfx/pianoRoll.ts
-   Piano Roll PixiJS — NoteBlocks qui défilent de haut en bas
+   Piano Roll PixiJS — NoteBlocks qui défilent
    + Object pooling pour la performance
+   + Support Mode Libre (monte) et Mode Lecture (descend)
 ================================================================ */
 
 import { Application, Graphics, Container } from 'pixi.js';
@@ -26,12 +27,16 @@ import {
 
 export type NoteBlockState = 'falling' | 'hit' | 'miss';
 
+/** Mode de défilement du piano roll */
+export type PianoRollMode = 'free' | 'read';
+
 interface NoteBlock {
   gfx:      Graphics;
   noteId:   number;
-  topY:     number;      // Position Y du haut du bloc (monte dans le temps)
-  anchorY:  number;      // Position Y du bas du bloc (fixe pendant l'appui)
-  held:     boolean;     // true = touche encore enfoncée
+  topY:     number;    // Position Y du haut du bloc
+  anchorY:  number;    // Position Y du bas du bloc
+  held:     boolean;   // true = touche encore enfoncée (Mode Libre)
+                       // true = note pas encore terminée (Mode Lecture)
   state:    NoteBlockState;
   active:   boolean;
 }
@@ -48,7 +53,10 @@ let _canvasHeight = 0;
 let _minMidi      = KEYBOARD_MIN_MIDI;
 let _maxMidi      = KEYBOARD_MAX_MIDI;
 
-const POOL_SIZE = 64;
+/** Mode actuel : 'free' (blocs montent) ou 'read' (blocs descendent) */
+let _mode: PianoRollMode = 'free';
+
+const POOL_SIZE = 128; // Agrandi pour le Mode Lecture (plus de notes simultanées)
 const _pool: NoteBlock[] = [];
 
 // ─────────────────────────────────────────────
@@ -60,7 +68,7 @@ const _pool: NoteBlock[] = [];
  * Doit être appelé AVANT la game loop.
  *
  * @param app     - Instance PixiJS dédiée au piano roll
- * @param minMidi - Note la plus basse affichée (doit correspondre au clavier visuel)
+ * @param minMidi - Note la plus basse affichée
  * @param maxMidi - Note la plus haute affichée
  */
 export function initPianoRoll(
@@ -79,6 +87,21 @@ export function initPianoRoll(
 
   _buildPool();
   console.log(`[PianoRoll] Initialisé (${_canvasWidth}×${_canvasHeight}, pool=${POOL_SIZE})`);
+}
+
+/**
+ * Définit le mode de défilement du piano roll.
+ * - 'free' : les blocs montent (Mode Libre, note jouée → confirmation visuelle)
+ * - 'read' : les blocs descendent depuis le haut (Mode Lecture, notes à jouer)
+ *
+ * À appeler avant de démarrer la lecture ou le mode libre.
+ *
+ * @param mode - 'free' ou 'read'
+ */
+export function setPianoRollMode(mode: PianoRollMode): void {
+  _mode = mode;
+  clearPianoRoll();
+  console.log(`[PianoRoll] Mode : ${mode}`);
 }
 
 // ─────────────────────────────────────────────
@@ -107,7 +130,7 @@ function _buildPool(): void {
 
 /**
  * Récupère un NoteBlock libre dans le pool.
- * Retourne null si le pool est épuisé (ne devrait pas arriver avec POOL_SIZE=64).
+ * Retourne null si le pool est épuisé.
  */
 function _acquireBlock(): NoteBlock | null {
   for (const block of _pool) {
@@ -128,22 +151,24 @@ function _releaseBlock(block: NoteBlock): void {
 }
 
 // ─────────────────────────────────────────────
-// API publique — note_on / note_off
+// API publique — Mode Libre (note_on / note_off)
 // ─────────────────────────────────────────────
 
 /**
- * Appelé au note_on : crée un bloc ancré en bas, qui commence à monter.
+ * Mode Libre — note_on : crée un bloc ancré en bas qui monte.
+ * Mode Lecture — ne pas appeler directement, utiliser spawnReadNote().
  */
 export function noteOnPianoRoll(noteId: number): void {
+  if (_mode !== 'free') return;
   if (noteId < _minMidi || noteId > _maxMidi) return;
 
   const block = _acquireBlock();
   if (!block) return;
 
   block.noteId  = noteId;
-  block.anchorY = _canvasHeight;        // Bas du bloc : ancré en bas du canvas
-  block.topY    = _canvasHeight;        // Haut du bloc : part du même endroit
-  block.held    = true;                 // Touche enfoncée
+  block.anchorY = _canvasHeight;  // Bas du bloc ancré en bas du canvas
+  block.topY    = _canvasHeight;  // Haut du bloc part du même endroit
+  block.held    = true;           // Touche enfoncée
   block.state   = 'falling';
   block.active  = true;
 
@@ -152,16 +177,59 @@ export function noteOnPianoRoll(noteId: number): void {
 }
 
 /**
- * Appelé au note_off : le bloc se détache et part vers le haut.
+ * Mode Libre — note_off : détache le bas du bloc, la taille est figée.
  */
 export function noteOffPianoRoll(noteId: number): void {
-  // On cherche le bloc tenu le plus récent pour ce noteId
+  if (_mode !== 'free') return;
+
   for (const block of _pool) {
     if (block.active && block.held && block.noteId === noteId) {
-      block.held = false; // Le bas se décroche, la taille est figée
+      block.held = false;
       return;
     }
   }
+}
+
+// ─────────────────────────────────────────────
+// API publique — Mode Lecture
+// ─────────────────────────────────────────────
+
+/**
+ * Mode Lecture — Fait apparaître un bloc en haut du canvas avec
+ * une hauteur proportionnelle à sa durée. Le bloc descend vers la
+ * ligne de frappe.
+ *
+ * @param noteId     - NoteID MIDI (0–127)
+ * @param durationMs - Durée de la note en millisecondes
+ * @param offsetMs   - Décalage temporel avant que la note atteigne
+ *                     la ligne de frappe (lookahead). Correspond à
+ *                     la hauteur du piano roll divisée par la vitesse.
+ */
+export function spawnReadNote(
+  noteId:     number,
+  durationMs: number,
+  offsetMs:   number,
+): void {
+  if (_mode !== 'read') return;
+  if (noteId < _minMidi || noteId > _maxMidi) return;
+
+  const block = _acquireBlock();
+  if (!block) return;
+
+  // Hauteur du bloc proportionnelle à la durée
+  const blockHeight = (durationMs / 1000) * SCROLL_SPEED_PX_PER_SEC;
+  // Le bas du bloc démarre au-dessus du canvas (offsetMs = temps avant impact)
+  const anchorY = -((offsetMs / 1000) * SCROLL_SPEED_PX_PER_SEC);
+
+  block.noteId  = noteId;
+  block.anchorY = anchorY;                   // Bas du bloc (bord inférieur)
+  block.topY    = anchorY - blockHeight;     // Haut du bloc
+  block.held    = true;                      // La note est "active" (pas encore passée)
+  block.state   = 'falling';
+  block.active  = true;
+
+  block.gfx.visible = true;
+  _drawBlock(block);
 }
 
 // ─────────────────────────────────────────────
@@ -170,7 +238,9 @@ export function noteOffPianoRoll(noteId: number): void {
 
 /**
  * Met à jour la position de tous les NoteBlocks actifs.
- * En Mode Libre, les blocs montent (vitesse négative).
+ *
+ * - Mode Libre : les blocs montent (haut de l'écran)
+ * - Mode Lecture : les blocs descendent (bas de l'écran = ligne de frappe)
  *
  * @param deltaMs - Temps écoulé depuis la dernière frame (ms)
  */
@@ -181,21 +251,33 @@ export function updatePianoRoll(deltaMs: number): void {
   for (const block of _pool) {
     if (!block.active) continue;
 
-    // Le haut monte toujours
-    block.topY -= speed * deltaSec;
+    if (_mode === 'free') {
+      // ── Mode Libre : les blocs montent ──────────────────────────
+      block.topY -= speed * deltaSec;
 
-    if (block.held) {
-      // Touche enfoncée : le bas reste ancré → le bloc grandit
-      // anchorY reste fixe, on ne le bouge pas
+      if (block.held) {
+        // Touche enfoncée : le bas reste ancré → le bloc grandit
+      } else {
+        // Touche relâchée : le bas monte aussi → taille figée
+        block.anchorY -= speed * deltaSec;
+      }
+
+      // Hors écran vers le haut → libération
+      if (block.anchorY < 0) {
+        _releaseBlock(block);
+        continue;
+      }
+
     } else {
-      // Touche relâchée : le bas monte à la même vitesse → taille figée
-      block.anchorY -= speed * deltaSec;
-    }
+      // ── Mode Lecture : les blocs descendent ─────────────────────
+      block.topY    += speed * deltaSec;
+      block.anchorY += speed * deltaSec;
 
-    // Hors écran vers le haut → libération
-    if (block.anchorY < 0) {
-      _releaseBlock(block);
-      continue;
+      // Hors écran vers le bas → libération
+      if (block.topY > _canvasHeight) {
+        _releaseBlock(block);
+        continue;
+      }
     }
 
     _drawBlock(block);
@@ -214,7 +296,6 @@ export function updatePianoRoll(deltaMs: number): void {
  * @param state  - 'hit' (vert) ou 'miss' (rouge)
  */
 export function setNoteBlockState(noteId: number, state: 'hit' | 'miss'): void {
-  // On cherche le bloc actif le plus récent pour ce noteId
   for (const block of _pool) {
     if (block.active && block.noteId === noteId) {
       block.state = state;
@@ -241,22 +322,21 @@ function _drawBlock(block: NoteBlock): void {
   const color  = _colorForState(block.state);
   const x      = noteIdToX(block.noteId, _minMidi, _maxMidi, _canvasWidth);
   const w      = _noteWidth(block.noteId);
-  const height = block.anchorY - block.topY;  // Hauteur dynamique
+  const height = block.anchorY - block.topY;
 
   // Sécurité : ne pas dessiner un bloc de hauteur nulle ou négative
   if (height <= 0) return;
 
   block.gfx.clear();
-  block.gfx.position.set(0, block.topY);  // On positionne le container au topY
+  block.gfx.position.set(0, block.topY);
   block.gfx
-    .rect(x - w / 2, 0, w, height)        // Le rect part de 0 (relatif au container)
+    .rect(x - w / 2, 0, w, height)
     .fill({ color })
     .stroke({ color: 0x000000, width: 1 });
 }
 
 /**
  * Calcule la largeur du bloc selon qu'il est blanc ou noir.
- * Les touches noires sont plus étroites → blocs plus étroits.
  */
 function _noteWidth(noteId: number): number {
   const ww = whiteKeyWidth(_minMidi, _maxMidi, _canvasWidth);
