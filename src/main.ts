@@ -8,21 +8,24 @@ import { handleNoteOn, handleNoteOff, onChordChange } from './core/chordDetector
 import { initRenderer } from './gfx/renderer';
 import { initKeyboardViz, keyOn, keyOff, allKeysOff } from './gfx/keyboardViz';
 import { initStaffFreeMode, renderChord, clearStaff, disposeStaffFreeMode } from './notation/staffFreeMode';
+import { initPianoRoll, spawnNoteBlock, updatePianoRoll, clearPianoRoll } from './gfx/pianoRoll';
+import { registerUpdateCallback, startGameLoop, disposeGameLoop } from './core/gameLoop';
 import type { MidiNote } from './core/midiEngine';
 
 // ── Éléments DOM ──────────────────────────────────────────────────────────────
-const overlayMenu   = document.getElementById('overlay-menu')   as HTMLDivElement;
-const gameView      = document.getElementById('game-view')      as HTMLDivElement;
-const btnFreeMode   = document.getElementById('btn-free-mode')  as HTMLButtonElement;
-const btnLoadFile   = document.getElementById('btn-load-file')  as HTMLButtonElement;
-const btnQuit       = document.getElementById('btn-quit')       as HTMLButtonElement;
-const midiDot       = document.getElementById('midi-dot')       as HTMLSpanElement;
-const midiLabel     = document.getElementById('midi-label')     as HTMLSpanElement;
-const zoneStaff     = document.getElementById('zone-staff')     as HTMLDivElement;
+const overlayMenu    = document.getElementById('overlay-menu')    as HTMLDivElement;
+const gameView       = document.getElementById('game-view')       as HTMLDivElement;
+const btnFreeMode    = document.getElementById('btn-free-mode')   as HTMLButtonElement;
+const btnLoadFile    = document.getElementById('btn-load-file')   as HTMLButtonElement;
+const btnQuit        = document.getElementById('btn-quit')        as HTMLButtonElement;
+const midiDot        = document.getElementById('midi-dot')        as HTMLSpanElement;
+const midiLabel      = document.getElementById('midi-label')      as HTMLSpanElement;
+const zoneStaff      = document.getElementById('zone-staff')      as HTMLDivElement;
 const canvasKeyboard = document.getElementById('canvas-keyboard') as HTMLCanvasElement;
+const canvasPianoRoll = document.getElementById('canvas-pianoroll') as HTMLCanvasElement;
 
 // ── État de l'app ─────────────────────────────────────────────────────────────
-let _pixiKeyboardReady = false;
+let _pixiReady = false;
 
 // ── Indicateur MIDI ───────────────────────────────────────────────────────────
 
@@ -45,12 +48,15 @@ setInterval(() => {
 initMidi(
   (note: MidiNote) => {
     handleNoteOn(note);
-    if (_pixiKeyboardReady) keyOn(note.noteId);
+    if (_pixiReady) {
+      keyOn(note.noteId);
+      spawnNoteBlock(note.noteId); // ← Nouveau : spawn visuel dans le piano roll
+    }
     updateMidiStatusUI(isMidiConnected(), getActiveInputName());
   },
   (note: MidiNote) => {
     handleNoteOff(note);
-    if (_pixiKeyboardReady) keyOff(note.noteId);
+    if (_pixiReady) keyOff(note.noteId);
   }
 );
 
@@ -59,11 +65,12 @@ onChordChange((activeNotes) => {
   renderChord(activeNotes);
 });
 
-// ── Initialisation PixiJS (clavier visuel) ────────────────────────────────────
+// ── Initialisation PixiJS ─────────────────────────────────────────────────────
 
 async function initGameView(): Promise<void> {
-  if (_pixiKeyboardReady) return; // Déjà initialisé
+  if (_pixiReady) return;
 
+  // ── Canvas Clavier ──────────────────────────────────────────────────────────
   const keyboardZone   = document.getElementById('zone-keyboard') as HTMLDivElement;
   const keyboardWidth  = keyboardZone.clientWidth;
   const keyboardHeight = keyboardZone.clientHeight;
@@ -71,8 +78,21 @@ async function initGameView(): Promise<void> {
   const appKeyboard = await initRenderer(canvasKeyboard, keyboardWidth, keyboardHeight);
   initKeyboardViz(appKeyboard);
 
-  _pixiKeyboardReady = true;
-  console.log('[main] Vue jeu initialisée');
+  // ── Canvas Piano Roll ───────────────────────────────────────────────────────
+  const pianoRollZone   = document.getElementById('zone-pianoroll') as HTMLDivElement;
+  const pianoRollWidth  = pianoRollZone.clientWidth;
+  const pianoRollHeight = pianoRollZone.clientHeight;
+
+  const appPianoRoll = await initRenderer(canvasPianoRoll, pianoRollWidth, pianoRollHeight);
+  initPianoRoll(appPianoRoll);
+
+  // ── Game Loop ───────────────────────────────────────────────────────────────
+  // On branche updatePianoRoll sur la loop : elle sera appelée à chaque frame
+  registerUpdateCallback(updatePianoRoll);
+  startGameLoop();
+
+  _pixiReady = true;
+  console.log('[main] Vue jeu initialisée (clavier + piano roll + game loop)');
 }
 
 // ── Routing ───────────────────────────────────────────────────────────────────
@@ -82,6 +102,9 @@ function showMenu(): void {
   gameView.classList.add('hidden');
   allKeysOff();
   clearStaff();
+  clearPianoRoll();
+  disposeGameLoop();
+  _pixiReady = false; // Reset pour permettre la réinit si besoin
 }
 
 async function showGame(mode: 'free' | 'read'): Promise<void> {
@@ -95,7 +118,7 @@ async function showGame(mode: 'free' | 'read'): Promise<void> {
     // Zone portée visible + VexFlow
     zoneStaff.style.display = '';
     initStaffFreeMode(zoneStaff);
-    renderChord([]); // Portée vide au démarrage
+    renderChord([]);
   }
 }
 
