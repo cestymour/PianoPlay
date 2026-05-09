@@ -57,7 +57,6 @@ import {
   stopScheduler,
   updateScheduler,
   getCurrentTimeMs,
-  getSchedulerLookaheadMs,
 } from './core/readModeScheduler';
 import type { MidiNote } from './core/midiEngine';
 
@@ -217,15 +216,12 @@ async function initGameView(): Promise<void> {
  * Enregistré comme callback de la game loop dans initGameView().
  * No-op si on n'est pas en Mode Lecture MXL.
  *
- * Le scheduler / piano roll planifient les blocs avec un lookahead : une note
- * apparaît en haut avant de « taper » la ligne de frappe. La portée doit
- * suivre l'instant d'impact (bas du roll), pas l'apparition : on retarde le
- * temps passé à OSMD du même délai.
+ * `getCurrentTimeMs()` correspond à l'instant où le bas du bloc atteint
+ * le bas du piano roll (ligne de frappe), aligné avec l'audio du morceau.
  */
 function _syncOsmdCursor(_deltaMs: number): void {
   if (_loadedFileType !== 'mxl') return;
-  const staffTimeMs = Math.max(0, getCurrentTimeMs() - getSchedulerLookaheadMs());
-  updateStaffReadMode(staffTimeMs);
+  updateStaffReadMode(getCurrentTimeMs());
 }
 
 // ─────────────────────────────────────────────

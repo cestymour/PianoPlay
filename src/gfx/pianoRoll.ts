@@ -201,9 +201,8 @@ export function noteOffPianoRoll(noteId: number): void {
  *
  * @param noteId     - NoteID MIDI (0–127)
  * @param durationMs - Durée de la note en millisecondes
- * @param offsetMs   - Décalage temporel avant que la note atteigne
- *                     la ligne de frappe (lookahead). Correspond à
- *                     la hauteur du piano roll divisée par la vitesse.
+ * @param offsetMs   - Temps restant (ms) avant que le **bas** du bloc atteigne
+ *                     le bas du canvas (= ligne de frappe / alignement clavier).
  */
 export function spawnReadNote(
   noteId:     number,
@@ -218,8 +217,9 @@ export function spawnReadNote(
 
   // Hauteur du bloc proportionnelle à la durée
   const blockHeight = (durationMs / 1000) * SCROLL_SPEED_PX_PER_SEC;
-  // Le bas du bloc démarre au-dessus du canvas (offsetMs = temps avant impact)
-  const anchorY = -((offsetMs / 1000) * SCROLL_SPEED_PX_PER_SEC);
+  // Bas du bloc : à offsetMs=0 il est sur le bas du canvas ; plus tôt il est plus haut
+  const anchorY =
+    _canvasHeight - ((Math.max(0, offsetMs) / 1000) * SCROLL_SPEED_PX_PER_SEC);
 
   block.noteId  = noteId;
   block.anchorY = anchorY;                   // Bas du bloc (bord inférieur)
