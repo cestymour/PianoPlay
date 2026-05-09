@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>PianoPlay</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════
+       OVERLAY MENU (affiché au démarrage)
+  ════════════════════════════════════════════ -->
+  <div id="overlay-menu">
+    <h1>🎹 PianoPlay</h1>
+
+    <div id="midi-status">
+      <span id="midi-dot" class="dot dot--red"></span>
+      <span id="midi-label">Aucun clavier détecté</span>
+    </div>
+
+    <div id="menu-buttons">
+      <button id="btn-free-mode">MODE LIBRE</button>
+      <button id="btn-load-file">SÉLECTIONNER UN MORCEAU</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       VUE JEU (masquée au démarrage)
+  ════════════════════════════════════════════ -->
+  <div id="game-view" class="hidden">
+
+    <!-- ZONE 1 : Portée musicale (VexFlow ou OSMD) -->
+    <div id="zone-staff"></div>
+
+    <!-- ZONE 2 : Piano Roll (Canvas PixiJS) -->
+    <div id="zone-pianoroll">
+      <canvas id="canvas-pianoroll"></canvas>
+    </div>
+
+    <!-- ZONE 3 : Clavier visuel (Canvas PixiJS) -->
+    <div id="zone-keyboard">
+      <canvas id="canvas-keyboard"></canvas>
+    </div>
+
+    <!-- Barre de contrôles en overlay -->
+    <div id="game-controls">
+      <button id="btn-pause">⏸ Pause</button>
+      <button id="btn-quit">✖ Quitter</button>
+    </div>
+
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

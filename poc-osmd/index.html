@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>PoC OSMD GraphicalNote</title>
+  <style>
+    body { font-family: sans-serif; background: #1a1a1a; color: #eee; padding: 20px; }
+    #osmd-container { background: white; padding: 10px; margin-top: 20px; }
+    .controls { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+    button {
+      padding: 10px 20px; font-size: 16px; cursor: pointer;
+      border: none; border-radius: 6px; background: #444; color: #fff;
+    }
+    button:hover { background: #666; }
+    #log {
+      margin-top: 16px; background: #111; padding: 12px;
+      border-radius: 6px; font-family: monospace; font-size: 13px;
+      max-height: 200px; overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>PoC — OSMD GraphicalNote coloration</h2>
+  <p>Un fichier MusicXML minimal est chargé. Teste les boutons pour colorier les notes.</p>
+
+  <div id="osmd-container"></div>
+
+  <div class="controls">
+    <button id="btn-green">✅ Colorier note 1 en VERT</button>
+    <button id="btn-red">🔴 Colorier note 2 en ROUGE</button>
+    <button id="btn-reset">⬜ Reset toutes les notes</button>
+    <button id="btn-dump">🔍 Dump GraphicalNotes (console)</button>
+  </div>
+
+  <div id="log">En attente de chargement OSMD...</div>
+
+  <!-- OSMD en UMD : pas besoin de module ES -->
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.4/build/opensheetmusicdisplay.min.js"></script>
+  <script src="main.js"></script>
+
+</body>
+</html>

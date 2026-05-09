@@ -1,0 +1,24 @@
+{
+  "name": "piano-play",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.10"
+  },
+  "dependencies": {
+    "midi-player-js": "^2.0.17",
+    "opensheetmusicdisplay": "^1.9.9",
+    "pixi.js": "^8.18.1",
+    "tone": "^15.1.22",
+    "vexflow": "^4.2.5",
+    "webmidi": "^3.1.16"
+  }
+}

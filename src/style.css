@@ -1,0 +1,211 @@
+/* ================================================================
+   src\style.css
+================================================================ */
+
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0f0f0f;
+  color: #eee;
+  font-family: sans-serif;
+  touch-action: none; /* Désactive le scroll tactile parasite */
+}
+
+.hidden { display: none !important; }
+
+/* ── OVERLAY MENU ── */
+#overlay-menu {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  background: #0f0f0f;
+}
+
+#overlay-menu h1 {
+  font-size: 2.5rem;
+  letter-spacing: 2px;
+}
+
+/* Indicateur MIDI */
+#midi-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1rem;
+}
+
+.dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot--red   { background: #ef4444; }
+.dot--green { background: #22c55e; }
+
+/* Boutons menu */
+#menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 320px;
+}
+
+#menu-buttons button {
+  padding: 18px;
+  font-size: 1.1rem;
+  font-weight: bold;
+  letter-spacing: 1px;
+  border: 2px solid #444;
+  border-radius: 10px;
+  background: #1e1e1e;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+#menu-buttons button:hover,
+#menu-buttons button:active {
+  background: #2e2e2e;
+  border-color: #888;
+}
+
+/* ── VUE JEU ── */
+#game-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Zone 1 : Portée */
+#zone-staff {
+  flex: 0 0 30%;
+  background: #fff;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Zone 2 : Piano Roll */
+#zone-pianoroll {
+  flex: 0 0 55%;
+  background: #111;
+  position: relative;
+  overflow: hidden;
+}
+
+#canvas-pianoroll {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Zone 3 : Clavier visuel */
+#zone-keyboard {
+  flex: 0 0 15%;
+  background: #1a1a1a;
+  position: relative;
+  overflow: hidden;
+}
+
+#canvas-keyboard {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Contrôles en overlay ── */
+#game-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 10px;
+  z-index: 100;
+}
+
+#game-controls button {
+  padding: 10px 18px;
+  font-size: 0.9rem;
+  border: none;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  cursor: pointer;
+}
+
+
+#game-controls button:hover {
+  background: #444;  /* fond sombre opaque, plus de blanc possible */
+  color: #fff;
+}
+
+.dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.dot.connected    { background-color: #2ecc71; }
+.dot.disconnected { background-color: #e74c3c; }
+
+/* ── Panneau sélection fichier/piste ──────────────────────────── */
+
+#file-picker-panel {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+#file-picker-panel p {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+#demo-list {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn-demo {
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+#track-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+#track-select {
+  padding: 0.4rem 0.8rem;
+  font-size: 1rem;
+  min-width: 200px;
+}
+
+#btn-start-read {
+  padding: 0.6rem 2rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
