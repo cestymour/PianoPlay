@@ -3,6 +3,12 @@
 ================================================================ */
 
 import './style.css';
+import {
+  installAudioUnlockOnFirstGesture,
+  previewNoteOn,
+  previewNoteOff,
+  releaseAllPreviewNotes,
+} from './audio/midiPianoPreview';
 import { initMidi, isMidiConnected, getActiveInputName } from './core/midiEngine';
 import { handleNoteOn, handleNoteOff, onChordChange } from './core/chordDetector';
 import { initRenderer } from './gfx/renderer';
@@ -131,6 +137,7 @@ setInterval(() => {
 initMidi(
   (note: MidiNote) => {
     handleNoteOn(note);
+    previewNoteOn(note.noteId, note.velocity);
     if (_pixiReady) {
       keyOn(note.noteId);
       noteOnPianoRoll(note.noteId);
@@ -139,6 +146,7 @@ initMidi(
   },
   (note: MidiNote) => {
     handleNoteOff(note);
+    previewNoteOff(note.noteId);
     if (_pixiReady) {
       keyOff(note.noteId);
       noteOffPianoRoll(note.noteId);
@@ -150,6 +158,7 @@ initMidi(
 initKeyboardDebug(
   (note: MidiNote) => {
     handleNoteOn(note);
+    previewNoteOn(note.noteId, note.velocity);
     if (_pixiReady) {
       keyOn(note.noteId);
       noteOnPianoRoll(note.noteId);
@@ -157,6 +166,7 @@ initKeyboardDebug(
   },
   (note: MidiNote) => {
     handleNoteOff(note);
+    previewNoteOff(note.noteId);
     if (_pixiReady) {
       keyOff(note.noteId);
       noteOffPianoRoll(note.noteId);
@@ -426,6 +436,7 @@ function showMenu(): void {
   overlayMenu.classList.remove('hidden');
   gameView.classList.add('hidden');
 
+  releaseAllPreviewNotes();
   allKeysOff();
   clearStaff();
   clearPianoRoll();
@@ -547,5 +558,6 @@ btnQuit.addEventListener('click', () => {
 // Démarrage
 // ─────────────────────────────────────────────
 
+installAudioUnlockOnFirstGesture();
 showMenu();
 console.log('[main] PianoPlay initialisé');

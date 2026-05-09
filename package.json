@@ -17,6 +17,7 @@
     "midi-player-js": "^2.0.17",
     "opensheetmusicdisplay": "^1.9.9",
     "pixi.js": "^8.18.1",
+    "tone": "^15.1.22",
     "vexflow": "^4.2.5",
     "webmidi": "^3.1.16"
   }
