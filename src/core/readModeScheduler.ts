@@ -94,6 +94,15 @@ export function getCurrentTimeMs(): number {
 }
 
 /**
+ * Délai entre l'apparition d'un bloc en haut du piano roll et son arrivée
+ * sur la ligne de frappe (bas du canvas), en ms — même valeur que pour le spawn.
+ * Sert à synchroniser la portée (OSMD) sur l'impact des notes, pas sur leur apparition.
+ */
+export function getSchedulerLookaheadMs(): number {
+  return _lookaheadMs;
+}
+
+/**
  * Indique si le scheduler est en cours de lecture.
  */
 export function isSchedulerRunning(): boolean {
