@@ -8,7 +8,6 @@
 import { Application, Graphics, Container } from 'pixi.js';
 import {
   SCROLL_SPEED_PX_PER_SEC,
-  NOTE_HEIGHT_PX,
   KEYBOARD_MIN_MIDI,
   KEYBOARD_MAX_MIDI,
   COLOR_NOTE_DEFAULT,
@@ -58,6 +57,12 @@ let _mode: PianoRollMode = 'free';
 
 const POOL_SIZE = 128; // Agrandi pour le Mode Lecture (plus de notes simultanées)
 const _pool: NoteBlock[] = [];
+
+/**
+ * Piles LIFO par pitch MIDI : chaque note_on associe un bloc précis ; seul le sommet
+ * reçoit le glow (comportement voix / relâchements comme sur un synthé).
+ */
+const _voiceStacks = new Map<number, NoteBlock[]>();
 
 // ─────────────────────────────────────────────
 // Initialisation
@@ -140,14 +145,26 @@ function _acquireBlock(): NoteBlock | null {
   return null;
 }
 
+function _purgeBlockFromVoiceStacks(block: NoteBlock): void {
+  const nid = block.noteId;
+  const st = _voiceStacks.get(nid);
+  if (!st) return;
+  const ix = st.indexOf(block);
+  if (ix < 0) return;
+  st.splice(ix, 1);
+  if (st.length === 0) _voiceStacks.delete(nid);
+}
+
 /**
  * Libère un NoteBlock et le remet dans le pool.
  */
 function _releaseBlock(block: NoteBlock): void {
+  _purgeBlockFromVoiceStacks(block);
   block.active      = false;
   block.held        = false;
   block.gfx.visible = false;
   block.gfx.clear();
+  _redrawBlocksForMidiNote(block.noteId);
 }
 
 // ─────────────────────────────────────────────
@@ -159,35 +176,40 @@ function _releaseBlock(block: NoteBlock): void {
  * Mode Lecture — ne pas appeler directement, utiliser spawnReadNote().
  */
 export function noteOnPianoRoll(noteId: number): void {
-  if (_mode !== 'free') return;
   if (noteId < _minMidi || noteId > _maxMidi) return;
 
-  const block = _acquireBlock();
-  if (!block) return;
+  if (_mode === 'free') {
+    const block = _acquireBlock();
+    if (!block) return;
 
-  block.noteId  = noteId;
-  block.anchorY = _canvasHeight;  // Bas du bloc ancré en bas du canvas
-  block.topY    = _canvasHeight;  // Haut du bloc part du même endroit
-  block.held    = true;           // Touche enfoncée
-  block.state   = 'falling';
-  block.active  = true;
+    block.noteId  = noteId;
+    block.anchorY = _canvasHeight;  // Bas du bloc ancré en bas du canvas
+    block.topY    = _canvasHeight;  // Haut du bloc part du même endroit
+    block.held    = true;           // Touche enfoncée
+    block.state   = 'falling';
+    block.active  = true;
 
-  block.gfx.visible = true;
-  _drawBlock(block);
+    block.gfx.visible = true;
+    _voicePush(noteId, block);
+  } else {
+    const block = _pickReadModeGlowBlock(noteId);
+    if (block) _voicePush(noteId, block);
+  }
 }
 
 /**
  * Mode Libre — note_off : détache le bas du bloc, la taille est figée.
  */
 export function noteOffPianoRoll(noteId: number): void {
-  if (_mode !== 'free') return;
+  if (noteId < _minMidi || noteId > _maxMidi) return;
 
-  for (const block of _pool) {
-    if (block.active && block.held && block.noteId === noteId) {
-      block.held = false;
-      return;
-    }
+  const popped = _voicePop(noteId);
+
+  if (_mode === 'free' && popped && popped.active) {
+    popped.held = false;
   }
+
+  _redrawBlocksForMidiNote(noteId);
 }
 
 // ─────────────────────────────────────────────
@@ -309,14 +331,85 @@ export function setNoteBlockState(noteId: number, state: 'hit' | 'miss'): void {
  * Libère tous les blocs actifs (retour menu, changement de mode).
  */
 export function clearPianoRoll(): void {
+  _voiceStacks.clear();
   for (const block of _pool) {
-    if (block.active) _releaseBlock(block);
+    if (!block.active) continue;
+    block.active = false;
+    block.held = false;
+    block.gfx.visible = false;
+    block.gfx.clear();
   }
 }
 
 // ─────────────────────────────────────────────
-// Rendu d'un NoteBlock
+// Voix MIDI (LIFO) + rendu
 // ─────────────────────────────────────────────
+
+function _voicePush(noteId: number, block: NoteBlock): void {
+  let st = _voiceStacks.get(noteId);
+  if (!st) {
+    st = [];
+    _voiceStacks.set(noteId, st);
+  }
+  st.push(block);
+  _redrawBlocksForMidiNote(noteId);
+}
+
+function _voicePop(noteId: number): NoteBlock | undefined {
+  const st = _voiceStacks.get(noteId);
+  if (!st || st.length === 0) return undefined;
+  const b = st.pop()!;
+  if (st.length === 0) _voiceStacks.delete(noteId);
+  return b;
+}
+
+function _isBlockInAnyVoiceStack(block: NoteBlock): boolean {
+  for (const st of _voiceStacks.values()) {
+    if (st.includes(block)) return true;
+  }
+  return false;
+}
+
+/** Bloc « attendu » en lecture : le plus bas à l’écran parmi ceux non déjà liés à une voix. */
+function _pickReadModeGlowBlock(noteId: number): NoteBlock | null {
+  const cands: NoteBlock[] = [];
+  for (const b of _pool) {
+    if (!b.active || b.noteId !== noteId) continue;
+    if (_isBlockInAnyVoiceStack(b)) continue;
+    cands.push(b);
+  }
+  if (cands.length === 0) return null;
+  cands.sort((a, b) => b.anchorY - a.anchorY);
+  return cands[0];
+}
+
+function _isVoiceGlowTop(block: NoteBlock): boolean {
+  const st = _voiceStacks.get(block.noteId);
+  if (!st || st.length === 0) return false;
+  return st[st.length - 1] === block;
+}
+
+function _smoothstep01(t: number): number {
+  const x = Math.max(0, Math.min(1, t));
+  return x * x * (3 - 2 * x);
+}
+
+function _mixTowardWhite(hex: number, t: number): number {
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  const l = (c: number) => Math.round(c + (255 - c) * t);
+  return (l(r) << 16) | (l(g) << 8) | l(b);
+}
+
+const _GLOW_LAYERS = 12;
+const _GLOW_STEP_PX = 1.35;
+
+function _redrawBlocksForMidiNote(noteId: number): void {
+  for (const block of _pool) {
+    if (block.active && block.noteId === noteId) _drawBlock(block);
+  }
+}
 
 function _drawBlock(block: NoteBlock): void {
   const color  = _colorForState(block.state);
@@ -327,12 +420,38 @@ function _drawBlock(block: NoteBlock): void {
   // Sécurité : ne pas dessiner un bloc de hauteur nulle ou négative
   if (height <= 0) return;
 
+  const glow = _isVoiceGlowTop(block);
+  // Rayon plus marqué ; plafond ~ demi-min côté pour éviter la forme « pilule » extrême
+  const baseR = Math.min(20, Math.max(4, Math.min(w, height) * 0.26));
+
   block.gfx.clear();
   block.gfx.position.set(0, block.topY);
+
+  if (glow) {
+    for (let i = _GLOW_LAYERS; i >= 1; i--) {
+      const pad = i * _GLOW_STEP_PX;
+      const u = i / _GLOW_LAYERS;
+      const falloff = _smoothstep01(1 - u);
+      const alpha = 0.018 + falloff * falloff * 0.2;
+      const lighten = 0.25 + (1 - falloff) * 0.55;
+      const glowColor = _mixTowardWhite(color, lighten);
+      const rw = w + pad * 2;
+      const rh = height + pad * 2;
+      const rx = x - rw / 2;
+      const ry = -pad;
+      const r = Math.min(baseR + pad * 0.58, Math.min(rw, rh) * 0.47);
+      block.gfx.roundRect(rx, ry, rw, rh, r).fill({ color: glowColor, alpha });
+    }
+  }
+
   block.gfx
-    .rect(x - w / 2, 0, w, height)
+    .roundRect(x - w / 2, 0, w, height, baseR)
     .fill({ color })
-    .stroke({ color: 0x000000, width: 1 });
+    .stroke(
+      glow
+        ? { color: _mixTowardWhite(color, 0.72), width: 2.2, alpha: 0.92 }
+        : { color: 0x000000, width: 1 },
+    );
 }
 
 /**
