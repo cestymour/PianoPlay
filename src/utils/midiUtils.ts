@@ -80,8 +80,11 @@ export function noteIdToX(
     const whiteIndex = countWhiteKeysBefore(noteId, minMidi);
     return whiteIndex * whiteKeyWidth + whiteKeyWidth / 2;
   } else {
-    // Touche noire : centrée sur la jonction entre la blanche gauche et la blanche droite
-    const leftWhiteIndex = countWhiteKeysBefore(noteId, minMidi);
+    // Touche noire : centrée sur la jonction après la blanche immédiatement à gauche.
+    // countWhiteKeysBefore(noteId, …) inclut cette blanche (car i < noteId) → un cran
+    // trop à droite ; utiliser la MIDI de la blanche précédente (toujours noteId - 1).
+    const leftWhiteMidi = noteId - 1;
+    const leftWhiteIndex = countWhiteKeysBefore(leftWhiteMidi, minMidi);
     return leftWhiteIndex * whiteKeyWidth + whiteKeyWidth;
   }
 }
