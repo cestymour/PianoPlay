@@ -45,6 +45,8 @@ let _osmd:            OpenSheetMusicDisplay | null = null;
 let _cursor:          Cursor | null                = null;
 let _container:       HTMLElement | null           = null;
 let _collectedNotes:  CollectedNote[]              = [];
+/** Fin de la dernière note (startMs + durationMs) — pour ne pas sauter la dernière surbrillance */
+let _playbackEndMs    = 0;
 let _ready            = false;
 
 // ─────────────────────────────────────────────
@@ -113,16 +115,38 @@ export async function initStaffReadMode(
  */
 export function updateStaffReadMode(currentTimeMs: number): void {
   if (!_ready || !_cursor || !_osmd) return;
-  if (_cursor.Iterator.EndReached) return;
 
-  // On avance le curseur tant que le temps courant dépasse la position
-  // de la prochaine entrée de voix
+  // Si OSMD a sauté au marqueur de fin alors que la lecture est encore dans la dernière note,
+  // reculer pour garder le curseur sur cette note (sinon jamais de surbrillance sur la dernière).
+  _nudgeCursorOffEndBarWhileLastNoteStillPlaying(currentTimeMs);
+
+  // Après la fin musicale réelle, laisser le curseur sur la fin de partition sans autre logique.
+  if (_cursor.Iterator.EndReached && currentTimeMs >= _playbackEndMs) {
+    return;
+  }
+
+  // Avancer tant que le timestamp courant du curseur est ≤ temps de lecture.
+  // À l'égalité stricte (T = début d'une note), un dernier `next()` en trop
+  // décale le curseur d'une note vers la droite et fait apparaître la couleur trop tôt.
   while (
     !_cursor.Iterator.EndReached &&
     _cursorCurrentMs() <= currentTimeMs
   ) {
     _cursor.next();
   }
+
+  // Repositionner sur la dernière entrée dont le début est ≤ T (note encore « en cours »).
+  if (!_cursor.Iterator.EndReached) {
+    while (
+      !_cursor.Iterator.FrontReached &&
+      _cursorCurrentMs() > currentTimeMs
+    ) {
+      _cursor.previous();
+    }
+  }
+
+  // Un dernier `next()` peut encore nous envoyer sur le marqueur de fin trop tôt.
+  _nudgeCursorOffEndBarWhileLastNoteStillPlaying(currentTimeMs);
 }
 
 /**
@@ -221,6 +245,22 @@ export function disposeStaffReadMode(): void {
 // ─────────────────────────────────────────────
 
 /**
+ * Si le curseur est sur le marqueur de fin (EndReached) alors que le temps de lecture
+ * n'a pas encore dépassé la fin de la dernière note collectée, recule d'au moins une entrée.
+ */
+function _nudgeCursorOffEndBarWhileLastNoteStillPlaying(currentTimeMs: number): void {
+  if (!_cursor || _playbackEndMs <= 0) return;
+
+  while (
+    _cursor.Iterator.EndReached &&
+    currentTimeMs < _playbackEndMs &&
+    !_cursor.Iterator.FrontReached
+  ) {
+    _cursor.previous();
+  }
+}
+
+/**
  * Parcourt le MeasureList d'OSMD après rendu et collecte tous les
  * GraphicalNotes avec leur pitch MIDI et leur temps de début.
  *
@@ -278,6 +318,10 @@ function _collectGraphicalNotes(): void {
 
   // Tri chronologique (au cas où les mesures ne seraient pas dans l'ordre)
   _collectedNotes.sort((a, b) => a.startMs - b.startMs);
+
+  _playbackEndMs = _collectedNotes.length > 0
+    ? Math.max(..._collectedNotes.map((n) => n.startMs + n.durationMs))
+    : 0;
 }
 
 /**
@@ -373,5 +417,6 @@ function _disposeOsmd(): void {
   }
   _osmd           = null;
   _collectedNotes = [];
+  _playbackEndMs  = 0;
   _ready          = false;
 }
