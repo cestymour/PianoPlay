@@ -14,6 +14,7 @@
 ================================================================ */
 
 import { OpenSheetMusicDisplay, Cursor } from 'opensheetmusicdisplay';
+import type { ParsedNote } from '../core/fileParser';
 
 // ─────────────────────────────────────────────
 // Types
@@ -30,6 +31,8 @@ interface CollectedNote {
   noteId:  number;
   /** Temps de début en millisecondes (calculé depuis la position dans la partition) */
   startMs: number;
+  /** Durée en ms (via OSMD PlaybackSettings — aligné tempo / mesures) */
+  durationMs: number;
   /** true = déjà colorée (hit ou miss) — évite une double coloration */
   colored: boolean;
 }
@@ -91,9 +94,9 @@ export async function initStaffReadMode(
 
   _ready = true;
 
-  // Durée estimée : dernière startMs + une mesure de marge
+  // Durée estimée : fin de la dernière note + petite marge
   const durationMs = _collectedNotes.length > 0
-    ? _collectedNotes[_collectedNotes.length - 1].startMs + 2000
+    ? Math.max(..._collectedNotes.map((n) => n.startMs + n.durationMs)) + 500
     : 0;
 
   console.log(`[StaffReadMode] ${_collectedNotes.length} note(s) collectée(s), durée estimée=${durationMs.toFixed(0)}ms`);
@@ -160,10 +163,27 @@ export function colorGraphicalNote(
  * Utile pour validator.ts afin de connaître les notes attendues.
  */
 export function getCollectedNotes(): ReadonlyArray<{
-  noteId:  number;
-  startMs: number;
+  noteId:     number;
+  startMs:    number;
+  durationMs: number;
 }> {
-  return _collectedNotes.map(({ noteId, startMs }) => ({ noteId, startMs }));
+  return _collectedNotes.map(({ noteId, startMs, durationMs }) => ({
+    noteId,
+    startMs,
+    durationMs,
+  }));
+}
+
+/**
+ * Notes au format ParsedNote pour le scheduler / piano roll (Mode Lecture MXL).
+ * À appeler après initStaffReadMode() une fois la collecte terminée.
+ */
+export function getStaffReadModeParsedNotes(): ParsedNote[] {
+  return _collectedNotes.map((cn) => ({
+    noteId:     cn.noteId,
+    startMs:    cn.startMs,
+    durationMs: cn.durationMs,
+  }));
 }
 
 /**
@@ -228,18 +248,26 @@ function _collectGraphicalNotes(): void {
       if (!measure) continue;
 
       for (const staffEntry of measure.staffEntries ?? []) {
-        // Temps de début de cette entrée en ms
-        const startMs = _timestampToMs(staffEntry);
-
         for (const gve of staffEntry.graphicalVoiceEntries ?? []) {
           for (const gn of gve.notes ?? []) {
+            const src = gn.sourceNote;
+            if (!src || src.isRest()) continue;
+            if (src.IsGraceNote) continue;
+
             const noteId = _pitchToMidi(gn);
             if (noteId === null) continue;
+
+            const startMs    = _fractionToMs(src.getAbsoluteTimestamp());
+            let durationMs   = _fractionToMs(gn.graphicalNoteLength);
+            if (!Number.isFinite(durationMs) || durationMs < 1) {
+              durationMs = 50;
+            }
 
             _collectedNotes.push({
               gn,
               noteId,
               startMs,
+              durationMs,
               colored: false,
             });
           }
@@ -305,30 +333,31 @@ function _pitchToMidi(gn: any): number | null {
 }
 
 /**
- * Retourne le temps de début d'un staffEntry en millisecondes.
- * OSMD stocke les timestamps en fractions de mesure (AbsoluteTimestamp).
- *
- * On utilise le BPM détecté ou 120 par défaut.
+ * Convertit une durée ou position musicale OSMD (Fraction) en millisecondes
+ * via SheetPlaybackSetting — tient compte du BPM réel du fichier.
  */
-function _timestampToMs(staffEntry: any): number {
-  // AbsoluteTimestamp est en "quarter notes" depuis le début
-  const qn  = staffEntry.AbsoluteTimestamp?.RealValue ?? 0;
-  const bpm = (_osmd as any)?.Sheet?.SheetPlaybackSetting?.rhythm?.Tempo ?? 120;
-
-  // ms = (quarter_notes / bpm) × 60_000
-  return (qn / bpm) * 60_000;
+function _fractionToMs(fraction: { RealValue: number } | null | undefined): number {
+  if (!_osmd || !fraction) return 0;
+  const playback = _osmd.Sheet?.SheetPlaybackSetting;
+  if (!playback || typeof playback.getDurationInMilliseconds !== 'function') {
+    const qn = (fraction as { RealValue?: number }).RealValue ?? 0;
+    const bpm =
+      _osmd.Sheet?.SheetPlaybackSetting?.BeatsPerMinute ??
+      _osmd.Sheet?.DefaultStartTempoInBpm ??
+      120;
+    return (qn / bpm) * 60_000;
+  }
+  return playback.getDurationInMilliseconds(fraction as any);
 }
 
 /**
  * Retourne la position courante du curseur OSMD en millisecondes.
  */
 function _cursorCurrentMs(): number {
-  if (!_cursor) return 0;
+  if (!_cursor || !_osmd) return 0;
 
-  const qn  = _cursor.Iterator.CurrentSourceTimestamp?.RealValue ?? 0;
-  const bpm = (_osmd as any)?.Sheet?.SheetPlaybackSetting?.rhythm?.Tempo ?? 120;
-
-  return (qn / bpm) * 60_000;
+  const ts = _cursor.Iterator.CurrentSourceTimestamp;
+  return _fractionToMs(ts);
 }
 
 /**

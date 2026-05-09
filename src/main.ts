@@ -18,6 +18,7 @@ import {
   updateStaffReadMode,
   disposeStaffReadMode,
   resetStaffReadMode,
+  getStaffReadModeParsedNotes,
 } from './notation/staffReadMode';
 import {
   initPianoRoll,
@@ -489,26 +490,25 @@ async function startReadMode(): Promise<void> {
       zoneStaff,
       _mxlBuffer.buffer,
       _mxlBuffer.mimeType,
-    );    
+    );
 
-    // 2. OSMD gère ses propres notes — le scheduler tourne à vide
-    //    pour faire avancer le temps (getCurrentTimeMs() utilisé par
-    //    _syncOsmdCursor pour piloter le curseur OSMD).
-    //    On crée une liste vide : pas de NoteBlocks dans le piano roll.
-    //    TODO étape 7 : alimenter le scheduler avec getCollectedNotes()
-    //    pour le feedback de validation.
-    initScheduler([], _pianoRollHeight, () => {
+    const mxlNotes = getStaffReadModeParsedNotes();
+    if (mxlNotes.length === 0) {
+      console.warn('[main] Aucune note OSMD pour le piano roll — scheduler vide');
+    }
+
+    // 2. Même pipeline que le MIDI : scheduler + piano roll, temps = getCurrentTimeMs()
+    //    (curseur OSMD synchronisé dans _syncOsmdCursor).
+    initScheduler(mxlNotes, _pianoRollHeight, () => {
       console.log('[main] Morceau MXL terminé');
       // TODO étape 8 : écran de score
     });
 
-    // Override de la durée du scheduler : on le laisse tourner
-    // le temps nécessaire pour que le curseur OSMD finisse.
-    // Pour l'instant le scheduler se terminera immédiatement (0 notes).
-    // À l'étape 7, on injectera les notes OSMD dans le scheduler.
     startScheduler();
 
-    console.log(`[main] Mode Lecture MXL — durée estimée=${durationMs.toFixed(0)}ms`);
+    console.log(
+      `[main] Mode Lecture MXL — ${mxlNotes.length} note(s), durée estimée=${durationMs.toFixed(0)}ms`,
+    );
   }
 }
 
