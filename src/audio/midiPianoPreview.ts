@@ -22,10 +22,33 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 let _sampler: Sampler | null = null;
 let _unlockInstalled = false;
 
+/** BufferSource actifs par hauteur (même convention que Tone.Sampler._activeSources). */
+type ActiveBufferSource = { stop: (time?: number) => void };
+
 function _midiToNote(noteId: number): string {
   const pc = noteId % 12;
   const oct = Math.floor(noteId / 12) - 1;
   return `${NOTE_NAMES[pc]}${oct}`;
+}
+
+/**
+ * Tone.Sampler empile plusieurs voix par hauteur, mais `triggerRelease(note)`
+ * arrête *toutes* les instances (voir node_modules/tone/.../Sampler.js).
+ * Pour plusieurs note_on sans relâchement entre eux, chaque note_off ne doit
+ * couper qu’une voix (FIFO = première attaque arrêtée en premier).
+ */
+function _releaseOneVoiceAtNoteId(sampler: Sampler, noteId: number): void {
+  const map = (sampler as unknown as { _activeSources?: Map<number, ActiveBufferSource[]> })
+    ._activeSources;
+  if (!map) {
+    sampler.triggerRelease(_midiToNote(noteId));
+    return;
+  }
+  const bucket = map.get(noteId);
+  if (!bucket?.length) {
+    return;
+  }
+  bucket[0].stop();
 }
 
 function _ensureSampler(): Sampler {
@@ -89,15 +112,15 @@ export function previewNoteOn(noteId: number, velocity: number): void {
 }
 
 /**
- * Note off — relâche la voix correspondant à cette hauteur.
+ * Note off — relâche une voix pour cette hauteur (FIFO si plusieurs attaques).
  */
 export function previewNoteOff(noteId: number): void {
   if (noteId < 0 || noteId > 127) return;
   if (!_sampler) return;
   try {
-    _sampler.triggerRelease(_midiToNote(noteId));
+    _releaseOneVoiceAtNoteId(_sampler, noteId);
   } catch {
-    /* idem */
+    /* */
   }
 }
 
