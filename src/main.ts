@@ -23,7 +23,6 @@ import {
   initStaffReadMode,
   updateStaffReadMode,
   disposeStaffReadMode,
-  resetStaffReadMode,
   getStaffReadModeParsedNotes,
 } from './notation/staffReadMode';
 import {
@@ -39,7 +38,6 @@ import {
   registerUpdateCallback,
   startGameLoop,
   pauseGameLoop,
-  disposeGameLoop,
 } from './core/gameLoop';
 import {
   parseMidiFile,
@@ -356,7 +354,7 @@ function onBufferReady(buffer: ArrayBuffer, filename: string): void {
 
   if (fileType === 'mid') {
     // ── Parsing MIDI ───────────────────────────────────────────
-    const result         = parseMidiFile(buffer);
+    parseMidiFile(buffer);
     const playableTracks = getPlayableTracks();
 
     if (playableTracks.length === 0) {

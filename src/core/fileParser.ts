@@ -54,7 +54,6 @@ export interface ParsedMxlFile {
 /** Données brutes indexées par piste : noteId → liste de {startMs, durationMs} */
 type RawNoteMap = Map<number, { startMs: number; durationMs: number }[]>;
 
-let _player:       MidiPlayer.Player | null = null;
 let _parsedTracks: Map<number, ParsedNote[]> = new Map();
 let _tracksMeta:   MidiTrack[] = [];
 let _durationMs    = 0;
@@ -110,7 +109,6 @@ export function parseMidiFile(buffer: ArrayBuffer): ParsedMidiFile {
   _reset();
 
   const player = new MidiPlayer.Player();
-  _player = player;
 
   // Chargement du buffer dans MidiPlayerJS
   player.loadArrayBuffer(buffer);
@@ -261,7 +259,6 @@ function _ticksToMs(ticks: number, bpm: number, ppqn: number): number {
  * Réinitialise l'état interne du parser.
  */
 function _reset(): void {
-  _player       = null;
   _parsedTracks = new Map();
   _tracksMeta   = [];
   _durationMs   = 0;

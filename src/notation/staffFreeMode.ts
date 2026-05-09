@@ -61,7 +61,7 @@ export function initStaffFreeMode(container: HTMLElement): void {
   // Nettoyage préventif
   container.innerHTML = '';
 
-  _renderer = new Renderer(container, Renderer.Backends.SVG);
+  _renderer = new Renderer(container as HTMLDivElement, Renderer.Backends.SVG);
   _renderer.resize(_width, _height);
 
   // Rendu initial : portée vide

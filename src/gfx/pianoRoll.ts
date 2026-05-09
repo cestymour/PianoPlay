@@ -44,7 +44,6 @@ interface NoteBlock {
 // État interne
 // ─────────────────────────────────────────────
 
-let _app:       Application | null = null;
 let _container: Container   | null = null;
 
 let _canvasWidth  = 0;
@@ -81,7 +80,6 @@ export function initPianoRoll(
   minMidi: number = KEYBOARD_MIN_MIDI,
   maxMidi: number = KEYBOARD_MAX_MIDI,
 ): void {
-  _app          = app;
   _canvasWidth  = app.screen.width;
   _canvasHeight = app.screen.height;
   _minMidi      = minMidi;

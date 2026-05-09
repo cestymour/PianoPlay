@@ -26,8 +26,6 @@ import {
 let _notes:         ParsedNote[] = [];
 let _currentTimeMs  = 0;
 let _nextNoteIndex  = 0;
-let _pianoRollHeight = 0;
-
 /** Temps en ms que met un bloc pour parcourir toute la hauteur du canvas */
 let _lookaheadMs    = 0;
 
@@ -37,8 +35,8 @@ let _onComplete:    (() => void) | null = null;
 /** Index de la prochaine note à « jouer » en audio (instant startMs du morceau) */
 let _nextPlaybackAudioIndex = 0;
 
-/** Timers note_off pour la lecture fichier (annulés à pause / stop) */
-let _playbackOffTimeouts: ReturnType<typeof setTimeout>[] = [];
+/** Timers note_off pour la lecture fichier (annulés à pause / stop) — IDs navigateur */
+let _playbackOffTimeouts: number[] = [];
 
 /** true si initScheduler a reçu au moins une note (mode lecture morceau) */
 let _filePlaybackAudioActive = false;
@@ -70,7 +68,6 @@ export function initScheduler(
   _notes           = [...notes].sort((a, b) => a.startMs - b.startMs);
   _currentTimeMs   = 0;
   _nextNoteIndex   = 0;
-  _pianoRollHeight = pianoRollHeight;
   _running         = false;
   _onComplete      = onComplete ?? null;
 

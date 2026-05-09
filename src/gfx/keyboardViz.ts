@@ -15,7 +15,6 @@ import {
   isBlackKey,
   noteIdToX,
   whiteKeyWidth,
-  countWhiteKeysInRange,
 } from '../utils/midiUtils';
 
 // ─────────────────────────────────────────────
