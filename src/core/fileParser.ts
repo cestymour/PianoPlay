@@ -32,6 +32,9 @@ export interface ParsedMidiFile {
   bpm:         number;        // Tempo détecté (ou DEFAULT_BPM si absent)
 }
 
+/** Index spécial représentant la fusion de toutes les pistes jouables */
+export const ALL_TRACKS_INDEX = -1;
+
 /**
  * Type de fichier musical détecté.
  * Utilisé par main.ts pour aiguiller vers le bon mode.
@@ -215,6 +218,19 @@ export function parseMidiFile(buffer: ArrayBuffer): ParsedMidiFile {
  * @returns Tableau de ParsedNote trié chronologiquement
  */
 export function getNotesForTrack(trackIndex: number): ParsedNote[] {
+  if (trackIndex === ALL_TRACKS_INDEX) {
+    const mergedNotes: ParsedNote[] = [];
+
+    _tracksMeta.forEach((track) => {
+      if (track.notes <= 0) return;
+      const trackNotes = _parsedTracks.get(track.index);
+      if (trackNotes) mergedNotes.push(...trackNotes);
+    });
+
+    mergedNotes.sort((a, b) => a.startMs - b.startMs);
+    return mergedNotes;
+  }
+
   return _parsedTracks.get(trackIndex) ?? [];
 }
 

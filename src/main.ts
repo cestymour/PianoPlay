@@ -40,6 +40,7 @@ import {
   detectFileType,
   getNotesForTrack,
   getPlayableTracks,
+  ALL_TRACKS_INDEX,
 } from './core/fileParser';
 import type { MidiTrack, MusicFileType, ParsedMxlFile } from './core/fileParser';
 import {
@@ -349,7 +350,7 @@ function onBufferReady(buffer: ArrayBuffer, filename: string): void {
       return;
     }
 
-    _selectedTrackIndex = playableTracks[0].index;
+    _selectedTrackIndex = ALL_TRACKS_INDEX;
     _populateTrackSelect(playableTracks);
 
     // Afficher le sélecteur de piste
@@ -392,12 +393,21 @@ function _showMxlPlayButton(): void {
 function _populateTrackSelect(tracks: MidiTrack[]): void {
   if (!_trackSelect) return;
   _trackSelect.innerHTML = '';
+
+  const totalNotes = tracks.reduce((sum, track) => sum + track.notes, 0);
+  const allTracksOption = document.createElement('option');
+  allTracksOption.value = String(ALL_TRACKS_INDEX);
+  allTracksOption.textContent = `Toutes les pistes (${totalNotes} notes)`;
+  _trackSelect.appendChild(allTracksOption);
+
   tracks.forEach((track) => {
     const opt         = document.createElement('option');
     opt.value         = String(track.index);
     opt.textContent   = `${track.name} (${track.notes} notes)`;
     _trackSelect!.appendChild(opt);
   });
+
+  _trackSelect.value = String(_selectedTrackIndex);
 }
 
 // ─────────────────────────────────────────────
