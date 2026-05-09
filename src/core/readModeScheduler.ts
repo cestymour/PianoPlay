@@ -13,6 +13,11 @@
 import { ParsedNote } from './fileParser';
 import { spawnReadNote } from '../gfx/pianoRoll';
 import { SCROLL_SPEED_PX_PER_SEC } from '../constants';
+import {
+  previewNoteOn,
+  previewNoteOff,
+  releaseAllPreviewNotes,
+} from '../audio/midiPianoPreview';
 
 // ─────────────────────────────────────────────
 // État interne
@@ -28,6 +33,22 @@ let _lookaheadMs    = 0;
 
 let _running        = false;
 let _onComplete:    (() => void) | null = null;
+
+/** Index de la prochaine note à « jouer » en audio (instant startMs du morceau) */
+let _nextPlaybackAudioIndex = 0;
+
+/** Timers note_off pour la lecture fichier (annulés à pause / stop) */
+let _playbackOffTimeouts: ReturnType<typeof setTimeout>[] = [];
+
+/** true si initScheduler a reçu au moins une note (mode lecture morceau) */
+let _filePlaybackAudioActive = false;
+
+function _clearPlaybackOffTimers(): void {
+  for (const id of _playbackOffTimeouts) {
+    clearTimeout(id);
+  }
+  _playbackOffTimeouts = [];
+}
 
 // ─────────────────────────────────────────────
 // API publique
@@ -57,6 +78,13 @@ export function initScheduler(
   // ex: 600px / 200px/s = 3000ms
   _lookaheadMs = (pianoRollHeight / SCROLL_SPEED_PX_PER_SEC) * 1000;
 
+  _clearPlaybackOffTimers();
+  _filePlaybackAudioActive = _notes.length > 0;
+  if (_filePlaybackAudioActive) {
+    releaseAllPreviewNotes();
+  }
+  _nextPlaybackAudioIndex = 0;
+
   console.log(`[Scheduler] Init : ${_notes.length} notes, lookahead=${_lookaheadMs.toFixed(0)}ms`);
 }
 
@@ -73,6 +101,10 @@ export function startScheduler(): void {
  */
 export function pauseScheduler(): void {
   _running = false;
+  if (_filePlaybackAudioActive) {
+    _clearPlaybackOffTimers();
+    releaseAllPreviewNotes();
+  }
   console.log('[Scheduler] En pause');
 }
 
@@ -83,6 +115,12 @@ export function stopScheduler(): void {
   _running       = false;
   _currentTimeMs = 0;
   _nextNoteIndex = 0;
+  _clearPlaybackOffTimers();
+  _nextPlaybackAudioIndex = 0;
+  if (_filePlaybackAudioActive) {
+    releaseAllPreviewNotes();
+  }
+  _filePlaybackAudioActive = false;
   console.log('[Scheduler] Arrêté');
 }
 
@@ -119,6 +157,24 @@ export function updateScheduler(deltaMs: number): void {
   if (!_running) return;
 
   _currentTimeMs += deltaMs;
+
+  // ── Audio morceau (MIDI / MXL) : attaque à startMs, relâchement après durationMs
+  if (_filePlaybackAudioActive) {
+    const PLAYBACK_VELOCITY = 82;
+    while (
+      _nextPlaybackAudioIndex < _notes.length &&
+      _notes[_nextPlaybackAudioIndex].startMs <= _currentTimeMs
+    ) {
+      const n = _notes[_nextPlaybackAudioIndex];
+      previewNoteOn(n.noteId, PLAYBACK_VELOCITY);
+      const holdMs = Math.max(45, Math.min(n.durationMs, 20_000));
+      const id = window.setTimeout(() => {
+        previewNoteOff(n.noteId);
+      }, holdMs);
+      _playbackOffTimeouts.push(id);
+      _nextPlaybackAudioIndex++;
+    }
+  }
 
   // On spawne toutes les notes dont le startMs <= currentTimeMs + lookahead
   // Ainsi le bloc arrive sur la ligne de frappe exactement à startMs
